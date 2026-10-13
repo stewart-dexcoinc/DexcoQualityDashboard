@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Dexco | Near Miss Intelligence</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.28.1/lib/msal-browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+<style>
+:root{color-scheme:dark} body{background:#0a101b;color:#e5edf8;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.panel{background:#111c2d;border:1px solid #26354b;border-radius:18px}.muted{color:#93a5bd}.filter{background:#0c1625;border:1px solid #304159;border-radius:10px;color:#e7eef8;padding:10px 12px;min-width:0}.filter:focus{outline:2px solid #38bdf8;outline-offset:1px}
+.stat{font-variant-numeric:tabular-nums}.chip{border:1px solid #34455b;border-radius:999px;padding:3px 9px;font-size:11px;color:#b9c8db}.table-wrap{overflow-x:auto}table{border-collapse:collapse;min-width:1020px;width:100%}td,th{text-align:left;padding:13px 15px;border-bottom:1px solid #27364a;vertical-align:top}th{font-size:11px;letter-spacing:.085em;text-transform:uppercase;color:#91a5be;font-weight:650}td{font-size:13px;color:#d1ddeb}tbody tr:hover{background:#16263b}.btn{padding:9px 13px;border:1px solid #34455b;border-radius:10px;font-size:13px;color:#dce6f4}.btn:hover{background:#21334a}.btn:disabled{opacity:.3;cursor:not-allowed}.kpi-card{cursor:pointer;transition:border-color .15s,background .15s,transform .15s;text-align:left;width:100%}.kpi-card:hover{border-color:#60a5fa;background:#17263c}.kpi-card:focus-visible{outline:2px solid #38bdf8;outline-offset:3px}.kpi-card[aria-pressed="true"]{border-color:#38bdf8;background:#152c43;box-shadow:inset 0 0 0 1px #38bdf8}.tooltip-dot{height:8px;width:8px;display:inline-block;border-radius:99px;margin-right:6px}
+.date-compact{width:100%;padding:7px 9px;font-size:12px;min-height:34px}.date-compact[type="date"]{color-scheme:dark}.period-details summary{list-style:none}.period-details summary::-webkit-details-marker{display:none} .period-details[open] .period-chevron{transform:rotate(180deg)}.period-chevron{transition:transform .15s ease}
+.period-details{position:relative;z-index:30}
+.period-details summary{list-style:none;display:flex;align-items:center;gap:9px;padding:8px 12px;border:1px solid #34455b;border-radius:10px;background:#0c1625;cursor:pointer;font-size:12px;white-space:nowrap}
+.period-details summary:hover,.period-details[open] summary{border-color:#38bdf8;background:#14253b}
+.period-popover{position:absolute;right:0;top:calc(100% + 10px);width:min(610px,calc(100vw - 42px));padding:18px;background:#142237;border:1px solid #3b5270;border-radius:16px;box-shadow:0 20px 55px rgba(0,0,0,.62);z-index:60;white-space:normal}
+.period-popover:before{content:"";position:absolute;right:26px;top:-6px;width:11px;height:11px;transform:rotate(45deg);background:#142237;border-left:1px solid #3b5270;border-top:1px solid #3b5270}
+@media(max-width:640px){.period-popover{right:-2px;padding:14px}.period-details summary{max-width:calc(100vw - 48px)}.period-date-label{max-width:150px;overflow:hidden;text-overflow:ellipsis}}
+
+.clickable-data canvas{cursor:pointer}.location-choice{cursor:pointer;border-radius:9px;padding:7px 9px;margin:-7px -9px;transition:background .15s}.location-choice:hover{background:#1c3048}.location-choice.selected{background:#173751;outline:1px solid #38bdf8}.facet-chip{cursor:pointer;background:#18314a;border-color:#38bdf8;color:#e1f5ff}.facet-chip:hover{background:#245071}
+</style>
+</head>
+<body class="min-h-screen">
+<div id="authGate" class="fixed inset-0 z-[1000] flex items-center justify-center bg-[#0a101b] p-6">
+  <div class="panel w-full max-w-lg p-8 text-center"><div class="text-xs font-bold tracking-[.2em] uppercase text-sky-400 mb-4">Dexco / Quality management</div>
+  <h1 class="text-2xl font-bold mb-3">Near Miss Intelligence</h1>
+  <p id="authMessage" class="muted text-sm mb-6" role="status" aria-live="polite">Sign in with your company Microsoft 365 account to load the latest near-miss reports from SharePoint.</p>
+  <button id="signInButton" class="btn border-sky-400 px-5 py-3">Sign in with Microsoft</button>
+  <button id="retryButton" class="btn ml-2 hidden">Retry loading data</button></div>
+</div>
+<div id="dashboard" class="hidden max-w-[1500px] mx-auto px-5 md:px-9 py-8 md:py-11">
+  <header class="flex flex-col gap-5 md:flex-row md:items-end md:justify-between mb-8">
+    <div><div class="text-xs font-bold tracking-[.24em] uppercase text-sky-400 mb-3">Dexco / Quality management</div><h1 class="text-3xl md:text-4xl font-bold tracking-tight">Near Miss Intelligence</h1><p class="muted text-sm mt-3">Explore reported issues, potential rework, and their origins in one view.</p></div>
+    <div class="flex flex-wrap items-center gap-2"><span class="chip" id="rangeBadge">Source data</span><span id="signedInAccount" class="text-xs muted"></span><button id="signOutButton" class="btn">Sign out</button><button id="resetBtn" class="btn">Reset filters</button><button id="exportBtn" class="btn">Export filtered CSV ↗</button></div>
+  </header>
+  <section class="panel p-5 mb-6 hidden" aria-label="Dashboard filters"><div class="flex items-center gap-2 text-xs font-semibold tracking-wider uppercase text-slate-400 mb-4"><span class="text-sky-400">▤</span> Filters <span id="filterCount" class="ml-auto font-normal normal-case tracking-normal">All records</span></div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      <label class="flex flex-col gap-2 text-xs muted">Problem origin<select id="origin" class="filter"><option value="">All origins</option></select></label>
+      <label class="flex flex-col gap-2 text-xs muted">Reported month<select id="month" class="filter"><option value="">All months</option></select></label>
+      <label class="flex flex-col gap-2 text-xs muted">Identified at<select id="identified" class="filter"><option value="">All locations</option></select></label>
+      <label class="flex flex-col gap-2 text-xs muted">Material held<select id="held" class="filter"><option value="">All records</option><option value="Yes">Yes</option><option value="No">No</option></select></label>
+      <label class="flex flex-col gap-2 text-xs muted">Find a record<input id="search" class="filter" placeholder="Job, text, ID..." type="search"/></label>
+    </div>
+  </section>
+  <section id="comparisonPanel" class="panel p-5 mb-5 hidden" aria-label="Period comparison"><div class="flex flex-wrap justify-between gap-3 items-center mb-4"><div><h2 class="font-semibold">Period comparison</h2><p id="comparisonPeriodLabels" class="muted text-xs mt-1"></p></div><span class="chip">Same non-date filters &amp; KPI selection</span></div><div id="comparisonMetrics" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3"></div><p class="text-xs muted mt-3">Change compares report counts in the selected date windows. A zero baseline is reported as N/A.</p></section>
+  <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-3" aria-label="Click a KPI to filter all charts and records">
+    <button type="button" class="panel p-5 kpi-card" data-kpi="all" aria-pressed="true"><p class="muted text-xs font-medium">Total near misses</p><div class="flex items-end justify-between mt-3"><strong class="text-4xl font-bold stat" id="total">—</strong><span class="text-sky-400 text-xs">Reported</span></div><p class="muted text-xs mt-4" id="period">Across reporting period</p></button>
+    <button type="button" class="panel p-5 kpi-card" data-kpi="held" aria-pressed="false"><p class="muted text-xs font-medium">Material held / removed</p><div class="flex items-end justify-between mt-3"><strong class="text-4xl font-bold stat" id="heldCount">—</strong><span class="text-amber-300 text-sm font-semibold" id="heldPct">—</span></div><p class="muted text-xs mt-4">Held material only</p></button>
+    <button type="button" class="panel p-5 kpi-card" data-kpi="reworked" aria-pressed="false"><p class="muted text-xs font-medium">Reworked</p><div class="flex items-end justify-between mt-3"><strong class="text-4xl font-bold stat" id="reworked">—</strong><span class="text-sky-400 text-xs">Final disposition</span></div><p class="muted text-xs mt-4">Includes plater rework</p></button>
+    <button type="button" class="panel p-5 kpi-card" data-kpi="scrapped" aria-pressed="false"><p class="muted text-xs font-medium">Scrapped</p><div class="flex items-end justify-between mt-3"><strong class="text-4xl font-bold stat" id="scrapped">—</strong><span class="text-rose-300 text-xs">Final disposition</span></div><p class="muted text-xs mt-4">Reported scrap outcomes</p></button>
+    <button type="button" class="panel p-5 kpi-card" data-kpi="other" aria-pressed="false"><p class="muted text-xs font-medium">Other / Undocumented</p><div class="flex items-end justify-between mt-3"><strong class="text-4xl font-bold stat" id="otherCount">—</strong><span class="text-amber-300 text-xs">Held material</span></div><p class="muted text-xs mt-4" id="otherDetail">Alternative or missing outcomes</p></button>
+  </div>
+  <div class="flex flex-wrap gap-2 items-center mb-6 text-xs muted"><span>Click any KPI to filter the full dashboard; click it again to clear.</span><span id="activeKpi" class="chip">Showing all dispositions</span><span id="activeFacets" class="flex flex-wrap gap-2" aria-live="polite"></span></div>
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-5 mb-6">
+    <section class="panel p-5 md:p-6 xl:col-span-2"><div class="flex flex-wrap items-center justify-between gap-3 mb-5"><div><h2 class="text-lg font-semibold">Near misses over time</h2><p class="muted text-xs mt-1">Click a point to focus on that interval · cumulative trend</p></div><details id="periodControls" class="period-details" aria-label="Date range controls">
+    <summary aria-label="Open reporting period options" title="Adjust dates and comparisons"><svg class="h-4 w-4 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg><span class="period-date-label" id="dateStatus">All available dates</span><svg class="period-chevron h-3.5 w-3.5 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary><div class="period-popover"><div class="flex items-center justify-between gap-3 mb-4"><div><h3 class="text-sm font-semibold">Reporting period</h3><p class="text-xs muted mt-1">Choose dates and compare periods</p></div><button id="closePeriod" type="button" class="btn text-xs" aria-label="Close reporting period">Close ✕</button></div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 items-end">
+      <label class="flex flex-col gap-1 text-[11px] muted">Quick range<select id="datePreset" class="filter date-compact"><option value="all">All available data</option><option value="week">This week</option><option value="mtd">Month to date</option><option value="lastMonth">Last full month</option><option value="last7">Last 7 days</option><option value="last30">Last 30 days</option><option value="last90">Last 90 days</option><option value="qtd">Quarter to date</option><option value="ytd">Year to date</option><option value="lastYear">Last full year</option><option value="last365">Trailing 12 months</option><option value="custom">Custom dates</option></select></label>
+      <label class="flex flex-col gap-1 text-[11px] muted">From<input type="date" id="dateStart" class="filter date-compact"/></label>
+      <label class="flex flex-col gap-1 text-[11px] muted">Through<input type="date" id="dateEnd" class="filter date-compact"/></label>
+      <label class="flex flex-col gap-1 text-[11px] muted">Compare with<select id="compareMode" class="filter date-compact"><option value="none">No comparison</option><option value="previous">Previous equal-length period</option><option value="year">Same dates last year</option><option value="custom">Custom comparison</option></select></label>
+      <label class="flex flex-col gap-1 text-[11px] muted">Trend granularity<select id="granularity" class="filter date-compact"><option value="auto">Auto</option><option value="day">Daily</option><option value="week">Weekly</option><option value="month">Monthly</option></select></label>
+    </div>
+    <div id="compareDates" class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 hidden"><label class="flex flex-col gap-1 text-[11px] muted">Comparison from<input type="date" id="compareStart" class="filter date-compact"/></label><label class="flex flex-col gap-1 text-[11px] muted">Comparison through<input type="date" id="compareEnd" class="filter date-compact"/></label></div>
+    <p id="comparisonNote" class="text-[11px] muted mt-2" aria-live="polite">Reporting periods are based on the near-miss start date.</p>
+  </div>
+</details>
+</div><div class="relative h-[300px]"><canvas id="trendChart"></canvas></div></section>
+    <section class="panel p-5 md:p-6"><div class="mb-5"><h2 class="text-lg font-semibold">Where problems originated</h2><p class="muted text-xs mt-1">Click multiple bars to compare · click again to remove</p></div><div class="relative h-[300px] clickable-data"><canvas id="originChart"></canvas></div></section>
+  </div>
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-6">
+    <section class="panel p-5 md:p-6"><h2 class="text-lg font-semibold">Where issues were found</h2><p class="muted text-xs mt-1 mb-5">Select multiple locations · click again to remove</p><div id="locations" class="space-y-3"></div></section>
+    <section class="panel p-5 md:p-6"><h2 class="text-lg font-semibold">Resolution time distribution</h2><p class="muted text-xs mt-1 mb-5">Click multiple bars to compare · click again to remove</p><div class="relative h-[245px] clickable-data"><canvas id="timeChart"></canvas></div><p id="timeMissing" class="text-xs muted mt-3"></p></section>
+  </div>
+  <section class="panel overflow-hidden"><div class="p-5 md:p-6 flex flex-wrap items-center justify-between gap-4"><label class="flex flex-col text-xs muted gap-1">Search records<input id="visibleSearch" class="filter" type="search" placeholder="Job, description, ID…" aria-label="Search records"/></label><div><h2 class="text-lg font-semibold">Near miss log</h2><p class="muted text-xs mt-1">Original descriptions and job details · <span id="recordCount">—</span> matching records</p></div><div class="flex gap-2 items-center"><span id="pageLabel" class="text-xs muted mr-2"></span><button class="btn" id="prev">← Previous</button><button class="btn" id="next">Next →</button></div></div><div class="table-wrap"><table><thead><tr><th>ID / Date</th><th>Found at</th><th>Origin</th><th>Job</th><th>Problem statement</th><th>Held</th><th>Disposition</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table></div><div class="px-5 py-4 text-xs muted">Source columns, including notes and links, are loaded from SharePoint after sign-in and can be exported as CSV.</div></section>
+  <footer class="text-xs muted mt-6 leading-relaxed">Source: Near Miss Form workbook via SharePoint JSON (refreshed by Power Automate). Data is requested only after Microsoft 365 sign-in and requires existing SharePoint access. Typographical variants in source categories are normalized for analysis; source values are preserved.</footer>
+</div>
+<script>
+'use strict';
+let RAW_DATA=[];
+const C={date:'Start time',origin:'Where did the problem start/who can resolve it?\u00a0',found:'Where was the issue identified?',held:'Was material held or removed from workflow',disposition:'Final Disposition',statement:'What slowed you down or caused rework? Defined your problem statement here.',job:'What job(s) are impacted?',time:'How much time was spent resolving the issue?'};
+const $=id=>document.getElementById(id);
+// Popover behaves like a calendar: overlays the chart, closes on outside click / Escape.
+document.addEventListener('pointerdown',event=>{const panel=$('periodControls');if(panel?.open && !panel.contains(event.target))panel.open=false;});
+document.addEventListener('keydown',event=>{if(event.key==='Escape' && $('periodControls')?.open){$('periodControls').open=false;$('periodControls').querySelector('summary').focus();}});
+document.addEventListener('DOMContentLoaded',()=>{$('closePeriod')?.addEventListener('click',()=>{$('periodControls').open=false;$('periodControls').querySelector('summary').focus();});});
+
+const clean=v=>v==null?'':String(v).trim();
+const normalOrigin=v=>{const s=clean(v); if(!s)return 'Unspecified';if(/^egin?eering$/i.test(s)||/^engineering$/i.test(s))return 'Engineering';if(/^welding$/i.test(s))return 'Weld';if(/^plating\s*$/i.test(s))return 'Plating';if(/^vendor$/i.test(s))return 'Supplier';if(/planning.*traveler/i.test(s))return 'Planning / Traveler Prep';return s;};
+const normalTime=v=>{let s=clean(v).toLowerCase().replace('miuntes','minutes');if(!s||s==='0')return s==='0'?'0 minutes':'Unspecified';return s;};
+function parseDate(v){let m=clean(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);return m?`${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`:'';}
+let DATA=[];
+function excelDate(value){
+  if(value===null||value===undefined||value==='')return '';
+  if(/^\d+(?:\.\d+)?$/.test(String(value))){
+    const ms=(Number(value)-25569)*86400000;
+    const d=new Date(ms);
+    if(!Number.isFinite(d.getTime()))return '';
+    return `${String(d.getUTCMonth()+1).padStart(2,'0')}/${String(d.getUTCDate()).padStart(2,'0')}/${d.getUTCFullYear()} ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
+  }
+  return String(value);
+}
+function loadData(rows){
+  RAW_DATA=rows.map(r=>{
+    const copy={...r};
+    if(copy[C.statement]===undefined){copy[C.statement]=copy['What slowed you down or caused rework? Defined your problem statement here_x002e_']??'';}
+    copy['Start time']=excelDate(copy['Start time']);
+    copy['Completion time']=excelDate(copy['Completion time']);
+    copy['Due Date']=excelDate(copy['Due Date']);
+    return copy;
+  });
+  DATA=RAW_DATA.map(r=>({...r,_date:parseDate(r[C.date]),_origin:normalOrigin(r[C.origin]),_found:clean(r[C.found])||'Unspecified',_time:normalTime(r[C.time])})).sort((a,b)=>a._date.localeCompare(b._date));
+}
+const countBy=(arr,fn)=>{const m=new Map();arr.forEach(r=>{let k=fn(r);m.set(k,(m.get(k)||0)+1)});return [...m].sort((a,b)=>b[1]-a[1]);};
+const toISO=d=>{const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`;};
+const fromISO=s=>new Date(s+'T12:00:00');
+const addDays=(s,n)=>{const d=fromISO(s);d.setDate(d.getDate()+n);return toISO(d);};
+const shiftYear=(s,n)=>{const d=fromISO(s),targetYear=d.getFullYear()+n,month=d.getMonth(),day=d.getDate();return toISO(new Date(targetYear,month,Math.min(day,new Date(targetYear,month+1,0).getDate()),12));};
+const dayCount=(a,b)=>Math.round((fromISO(b)-fromISO(a))/86400000)+1;
+const rangeFor=(preset)=>{const now=new Date(),t=toISO(now),year=now.getFullYear(),mon=now.getMonth(),first=toISO(new Date(year,mon,1,12));switch(preset){case 'week':return [addDays(t,-(now.getDay()+6)%7),t];case 'mtd':return [first,t];case 'lastMonth':return [toISO(new Date(year,mon-1,1,12)),addDays(first,-1)];case 'last7':return [addDays(t,-6),t];case 'last30':return [addDays(t,-29),t];case 'last90':return [addDays(t,-89),t];case 'qtd':return [toISO(new Date(year,Math.floor(mon/3)*3,1,12)),t];case 'ytd':return [`${year}-01-01`,t];case 'lastYear':return [`${year-1}-01-01`,`${year-1}-12-31`];case 'last365':return [addDays(t,-364),t];default:return [DATA[0]._date,DATA[DATA.length-1]._date];}};
+const dateWithin=(r,a,b)=>r._date>=a&&r._date<=b;
+function selectedRange(){return [$('dateStart').value,$('dateEnd').value];}
+function compareRange(){const mode=$('compareMode').value,[a,b]=selectedRange();if(mode==='none'||!a||!b||a>b)return null;if(mode==='custom')return [$('compareStart').value,$('compareEnd').value];if(mode==='previous')return [addDays(a,-dayCount(a,b)),addDays(a,-1)];return [shiftYear(a,-1),shiftYear(b,-1)];}
+function setPreset(v){const [a,b]=rangeFor(v);$('dateStart').value=a;$('dateEnd').value=b;refresh();}
+const fmtDate=s=>s?new Date(s+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
+const fmtMonth=s=>new Date(s+'-01T12:00:00').toLocaleDateString('en-US',{month:'short',year:'numeric'});
+const esc=v=>clean(v).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+let current=[],page=0;const PAGE_SIZE=12;
+function setOptions(id,values,formatter=v=>v){for(const v of values){const o=document.createElement('option');o.value=v;o.textContent=formatter(v);$(id).appendChild(o)}}
+setOptions('origin',countBy(DATA,r=>r._origin).map(([v])=>v));
+setOptions('month',[...new Set(DATA.map(r=>r._date.slice(0,7)))].sort(),fmtMonth);
+setOptions('identified',countBy(DATA,r=>r._found).map(([v])=>v));
+$('rangeBadge').textContent=`${fmtDate(DATA[0]._date)} – ${fmtDate(DATA[DATA.length-1]._date)}`;
+Chart.defaults.color='#a2b2c8';Chart.defaults.borderColor='rgba(148,163,184,.12)';Chart.defaults.font.family='Inter,system-ui,sans-serif';
+let trendChart,originChart,timeChart;const pickedOrigins=new Set(),pickedLocations=new Set(),pickedTimes=new Set();let originOtherSet=[];const palette=['#38bdf8','#fbbf24','#a78bfa','#34d399','#fb7185','#f97316','#22d3ee','#c4b5fd'];const groupColor=(name)=>palette[Math.max(0,countBy(DATA,r=>r._origin).findIndex(x=>x[0]===name))%palette.length];
+const common={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{usePointStyle:true,boxWidth:7,padding:18}},tooltip:{backgroundColor:'#1d2c41',padding:12,cornerRadius:9}},scales:{x:{grid:{display:false},ticks:{maxRotation:0}},y:{beginAtZero:true,ticks:{precision:0},grid:{color:'rgba(148,163,184,.12)'}}}};
+function renderCharts(rows,comparisonRows=[],comparisonWindow=null,pools={}){
+ const [start,end]=selectedRange();const days=dayCount(start,end);const gran=$('granularity').value==='auto'?(days<=45?'day':days<=125?'week':'month'):$('granularity').value;
+ const unitStart=(d)=>{if(gran==='day')return d;if(gran==='month')return d.slice(0,7)+'-01';return addDays(d,-(fromISO(d).getDay()+6)%7);};
+ const endKey=unitStart(end);let buckets=[];let cur=unitStart(start);for(let i=0;cur<=endKey&&i<2000;i++){buckets.push(cur);cur=gran==='day'?addDays(cur,1):gran==='week'?addDays(cur,7):toISO(new Date(fromISO(cur).getFullYear(),fromISO(cur).getMonth()+1,1,12));}
+ const counter=new Map(countBy(rows,r=>unitStart(r._date)));let total=0;
+ const values=buckets.map(d=>counter.get(d)||0),running=values.map(v=>(total+=v));
+ const names=buckets.map(d=>gran==='month'?fmtMonth(d.slice(0,7)):fmtDate(d));
+ const compareOrigins=[...pickedOrigins].filter(v=>v!=='Other');
+ const grouped=compareOrigins.length>1;
+ const sets=grouped?compareOrigins.map((name)=>({label:name,data:buckets.map(d=>rows.filter(r=>r._origin===name&&unitStart(r._date)===d).length),borderColor:groupColor(name),backgroundColor:groupColor(name),tension:.2,pointRadius:buckets.length>85?0:3,yAxisID:'y'})):[{label:'Selected period',data:values,borderColor:'#38bdf8',backgroundColor:'rgba(56,189,248,.12)',fill:true,tension:.2,pointRadius:buckets.length>85?0:3,yAxisID:'y'}];
+ if(comparisonWindow){
+   const [ca,cb]=comparisonWindow;const compareBuckets=new Map();
+   comparisonRows.forEach(r=>{const idx=Math.floor((fromISO(r._date)-fromISO(ca))/86400000);if(idx<0)return;const target=addDays(start,idx);const key=unitStart(target);compareBuckets.set(key,(compareBuckets.get(key)||0)+1);});
+   sets.push({label:'Comparison period (total)',data:buckets.map(d=>compareBuckets.get(d)||0),borderColor:'#f59e0b',borderDash:[6,4],tension:.2,pointRadius:buckets.length>85?0:3,yAxisID:'y'});
+ }else if(!grouped){sets.push({label:'Cumulative in selected period',data:running,borderColor:'#a78bfa',borderDash:[6,5],pointRadius:buckets.length>85?0:3,tension:.2,yAxisID:'y1'});}
+ if(trendChart)trendChart.destroy();trendChart=new Chart($('trendChart'),{type:'line',data:{labels:names,datasets:sets},options:{...common,onClick:(_,els)=>{if(!els.length)return;const d=buckets[els[0].index];const endDate=gran==='day'?d:gran==='week'?addDays(d,6):toISO(new Date(fromISO(d).getFullYear(),fromISO(d).getMonth()+1,0,12));$('dateStart').value=d;$('dateEnd').value=endDate;$('datePreset').value='custom';refresh();},interaction:{mode:'index',intersect:false},scales:{...common.scales,x:{...common.scales.x,ticks:{maxRotation:0,autoSkip:true,maxTicksLimit:12}},...(comparisonWindow||grouped?{}:{y1:{position:'right',beginAtZero:true,grid:{drawOnChartArea:false},ticks:{precision:0}}})}}});
+ const originRows=pools.origin||rows;
+ const origins=countBy(originRows,r=>r._origin);const top=origins.slice(0,7);const extras=origins.slice(7).map(x=>x[0]);originOtherSet=extras;
+ if(extras.length)top.push(['Other',origins.slice(7).reduce((sum,x)=>sum+x[1],0)]);
+ for(const name of pickedOrigins){if(!top.some(x=>x[0]===name))top.push([name,name==='Other'?originRows.filter(r=>extras.includes(r._origin)).length:originRows.filter(r=>r._origin===name).length]);}
+ if(originChart)originChart.destroy();originChart=new Chart($('originChart'),{type:'bar',data:{labels:top.map(x=>x[0].length>23?x[0].slice(0,22)+'…':x[0]),datasets:[{label:'Records',data:top.map(x=>x[1]),backgroundColor:top.map(x=>pickedOrigins.has(x[0])?'#fbbf24':'#38bdf8'),borderRadius:5,barThickness:18}]},options:{...common,indexAxis:'y',onClick:(_,els)=>{if(!els.length)return;const key=top[els[0].index][0];pickedOrigins.has(key)?pickedOrigins.delete(key):pickedOrigins.add(key);refresh();},plugins:{...common.plugins,legend:{display:false},tooltip:{...common.plugins.tooltip,callbacks:{title:items=>top[items[0].dataIndex][0]}}},scales:{x:{beginAtZero:true,ticks:{precision:0},grid:{color:'rgba(148,163,184,.12)'}},y:{grid:{display:false}}}}});
+ const order=['0 minutes','<10 minutes','10-30 minutes','30-60 minutes','1-2 hours','2-24 hours','1+ days'];
+ const timeRows=pools.time||rows;const times=new Map(countBy(timeRows,r=>r._time));
+ const timeGroups=grouped?compareOrigins.map(name=>({label:name,data:order.map(t=>timeRows.filter(r=>r._origin===name&&r._time===t).length),backgroundColor:groupColor(name),borderRadius:3,stack:'origins'})):[{label:'Reports',data:order.map(t=>times.get(t)||0),backgroundColor:order.map(t=>pickedTimes.has(t)?'#fbbf24':'#a78bfa'),borderRadius:5}];
+ if(timeChart)timeChart.destroy();timeChart=new Chart($('timeChart'),{type:'bar',data:{labels:order,datasets:timeGroups},options:{...common,onClick:(_,els)=>{if(!els.length)return;const key=order[els[0].index];pickedTimes.has(key)?pickedTimes.delete(key):pickedTimes.add(key);refresh();},plugins:{...common.plugins,legend:{display:grouped}},scales:{...common.scales,x:{...common.scales.x,stacked:grouped},y:{...common.scales.y,stacked:grouped}}}});
+ $('timeMissing').textContent=`${times.get('Unspecified')||0} reports have no resolution-time bracket.`;
+ const locRows=pools.location||rows;const loc=countBy(locRows,r=>r._found);const topLoc=loc.slice(0,6);for(const name of pickedLocations){if(!topLoc.some(x=>x[0]===name))topLoc.push([name,locRows.filter(r=>r._found===name).length]);}
+ const max=topLoc.length?Math.max(1,...topLoc.map(x=>x[1])):1;
+ $('locations').innerHTML=topLoc.length?topLoc.map(([n,v])=>`<button type="button" class="location-choice block w-full text-left ${pickedLocations.has(n)?'selected':''}" data-location="${esc(n)}"><div class="flex justify-between gap-4 text-sm mb-1.5"><span>${esc(n)}</span><span class="stat muted">${v}</span></div><div class="h-2 rounded-full bg-slate-800 overflow-hidden flex">${grouped?compareOrigins.map(name=>`<div title="${esc(name)}: ${locRows.filter(r=>r._found===n&&r._origin===name).length}" style="width:${100*locRows.filter(r=>r._found===n&&r._origin===name).length/max}%;background:${groupColor(name)}"></div>`).join(''):`<div class="h-full rounded-full bg-sky-500" style="width:${100*v/max}%"></div>`}</div>${grouped?`<div class="text-[10px] muted mt-1.5">${compareOrigins.map(name=>`${esc(name)} ${locRows.filter(r=>r._found===n&&r._origin===name).length}`).join(' · ')}</div>`:''}</button>`).join(''):'<p class="muted text-sm">No matching records.</p>';
+}
+function renderTable(){const count=current.length,pages=Math.max(1,Math.ceil(count/PAGE_SIZE));page=Math.min(page,pages-1);const part=current.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE);$('rows').innerHTML=part.map(r=>`<tr><td><strong class="text-sky-300">#${esc(r.Id)}</strong><div class="muted whitespace-nowrap mt-1">${fmtDate(r._date)}</div></td><td>${esc(r._found)}</td><td>${esc(r._origin)}</td><td>${esc(r[C.job])||'—'}</td><td class="max-w-[470px] leading-relaxed">${esc(r[C.statement])||'—'}</td><td>${esc(r[C.held])||'—'}</td><td>${esc(r[C.disposition])||'—'}</td><td>${esc(r.Status)||'—'}</td></tr>`).join('')||'<tr><td colspan="8" class="muted text-center py-10">No matching records</td></tr>';$('recordCount').textContent=count;$('pageLabel').textContent=`Page ${page+1} of ${pages}`;$('prev').disabled=page===0;$('next').disabled=page>=pages-1;}
+const dispositionKind=r=>{
+ if(clean(r[C.held])!=='Yes')return 'not-held';
+ const d=clean(r[C.disposition]);
+ if(/rework/i.test(d))return 'reworked';
+ if(/scrap/i.test(d))return 'scrapped';
+ return 'other';
+};
+let activeKpi='all';
+const kpiLabels={all:'All near misses',held:'Material held',reworked:'Reworked',scrapped:'Scrapped',other:'Other / Undocumented'};
+const kpiMatch=r=>activeKpi==='all'||(activeKpi==='held'?clean(r[C.held])==='Yes':dispositionKind(r)===activeKpi);
+function refresh(){const q=$('search').value.trim().toLowerCase(),origin=$('origin').value,month=$('month').value,found=$('identified').value,held=$('held').value;
+ const [from,to]=selectedRange();const valid=from&&to&&from<=to;const cmp=valid?compareRange():null;const validCmp=cmp&&cmp[0]&&cmp[1]&&cmp[0]<=cmp[1];
+ const otherFilter=r=>(!origin||r._origin===origin)&&(!month||r._date.startsWith(month))&&(!found||r._found===found)&&(!held||clean(r[C.held])===held)&&(!pickedOrigins.size||[...pickedOrigins].some(v=>v==='Other'?originOtherSet.includes(r._origin):r._origin===v))&&(!pickedLocations.size||pickedLocations.has(r._found))&&(!pickedTimes.size||pickedTimes.has(r._time))&&(!q||Object.values(r).some(v=>clean(v).toLowerCase().includes(q)));
+ const base=valid?DATA.filter(r=>dateWithin(r,from,to)&&otherFilter(r)):[];
+ const heldRows=base.filter(r=>clean(r[C.held])==='Yes');const reworks=base.filter(r=>dispositionKind(r)==='reworked');const scraps=base.filter(r=>dispositionKind(r)==='scrapped');const others=base.filter(r=>dispositionKind(r)==='other');
+ current=base.filter(kpiMatch);
+ $('total').textContent=base.length.toLocaleString();$('heldCount').textContent=heldRows.length.toLocaleString();$('heldPct').textContent=base.length?(100*heldRows.length/base.length).toFixed(1)+'%':'0%';$('reworked').textContent=reworks.length;$('scrapped').textContent=scraps.length;$('otherCount').textContent=others.length;
+ const missing=others.filter(r=>!clean(r[C.disposition])).length;$('otherDetail').textContent=`${others.length-missing} other · ${missing} missing final disposition`;
+ $('period').textContent=`${base.length} of ${DATA.length} source records`;$('filterCount').textContent=`Showing ${current.length} of ${DATA.length}`;
+ $('activeKpi').textContent=activeKpi==='all'?'Showing all dispositions':`KPI filter: ${kpiLabels[activeKpi]}`;
+ $('activeFacets').innerHTML=[['origin',pickedOrigins,'Origin'],['location',pickedLocations,'Found at'],['time',pickedTimes,'Resolution']].flatMap(([type,values,label])=>[...values].map(value=>`<button class="chip facet-chip" data-clear="${type}" data-value="${esc(value)}" title="Remove selection">${label}: ${esc(value)} ×</button>`)).join('');
+ $('dateStatus').textContent=valid?`${fmtDate(from)} – ${fmtDate(to)}`:'Choose a valid date range';
+ $('comparisonNote').textContent=!valid?'The start date must be on or before the end date.':validCmp?`Comparing ${fmtDate(from)} – ${fmtDate(to)} against ${fmtDate(cmp[0])} – ${fmtDate(cmp[1])}.`:'Reporting periods are based on near-miss start date.';
+ $('compareDates').classList.toggle('hidden',$('compareMode').value!=='custom');
+ const showComparison=!!validCmp&&$('compareMode').value!=='none';$('comparisonPanel').classList.toggle('hidden',!showComparison);
+ let cmpRows=[];if(showComparison){cmpRows=DATA.filter(r=>dateWithin(r,cmp[0],cmp[1])&&otherFilter(r));const getCounts=a=>[a.length,a.filter(r=>clean(r[C.held])==='Yes').length,a.filter(r=>dispositionKind(r)==='reworked').length,a.filter(r=>dispositionKind(r)==='scrapped').length,a.filter(r=>dispositionKind(r)==='other').length];const a=getCounts(base),b=getCounts(cmpRows),labels=['Near misses','Material held','Reworked','Scrapped','Other / undocumented'];
+ $('comparisonPeriodLabels').textContent=`Selected: ${fmtDate(from)} – ${fmtDate(to)} | Comparison: ${fmtDate(cmp[0])} – ${fmtDate(cmp[1])}`;
+ $('comparisonMetrics').innerHTML=a.map((n,i)=>{const delta=b[i]===0?'N/A':`${((n-b[i])/b[i]*100)>=0?'+':''}${((n-b[i])/b[i]*100).toFixed(1)}%`;return `<div class="rounded-xl border border-slate-700 p-3"><p class="text-xs muted">${labels[i]}</p><p class="text-xl font-bold stat mt-2">${n} <span class="muted text-xs font-normal">vs ${b[i]}</span></p><p class="text-xs mt-1 ${n>b[i]?'text-amber-300':n<b[i]?'text-sky-300':'muted'}">${delta} change</p></div>`}).join('');
+ }
+ document.querySelectorAll('[data-kpi]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.kpi===activeKpi)));
+ page=0;const poolFor=facet=>valid?DATA.filter(r=>dateWithin(r,from,to)&&kpiMatch(r)&&(!origin||r._origin===origin)&&(!month||r._date.startsWith(month))&&(!found||r._found===found)&&(!held||clean(r[C.held])===held)&&(!q||Object.values(r).some(v=>clean(v).toLowerCase().includes(q)))&&(facet==='origin'||!pickedOrigins.size||[...pickedOrigins].some(v=>v==='Other'?originOtherSet.includes(r._origin):r._origin===v))&&(facet==='location'||!pickedLocations.size||pickedLocations.has(r._found))&&(facet==='time'||!pickedTimes.size||pickedTimes.has(r._time))):[];
+ renderCharts(current,cmpRows.filter(kpiMatch),showComparison?cmp:null,{origin:poolFor('origin'),location:poolFor('location'),time:poolFor('time')});renderTable();}
+document.querySelectorAll('[data-kpi]').forEach(el=>el.addEventListener('click',()=>{activeKpi=activeKpi===el.dataset.kpi?'all':el.dataset.kpi;refresh()}));
+$('locations').addEventListener('click',e=>{const b=e.target.closest('[data-location]');if(!b)return;const v=b.dataset.location;pickedLocations.has(v)?pickedLocations.delete(v):pickedLocations.add(v);refresh()});
+$('activeFacets').addEventListener('click',e=>{const b=e.target.closest('[data-clear]');if(!b)return;const set={origin:pickedOrigins,location:pickedLocations,time:pickedTimes}[b.dataset.clear];if(set)set.delete(b.dataset.value);refresh()});
+$('datePreset').addEventListener('change',()=>{if($('datePreset').value==='custom')return;setPreset($('datePreset').value)});
+['dateStart','dateEnd'].forEach(id=>$(id).addEventListener('change',()=>{$('datePreset').value='custom';refresh()}));
+$('compareMode').addEventListener('change',()=>{if($('compareMode').value==='custom'){const [a,b]=selectedRange();$('compareStart').value=addDays(a,-dayCount(a,b));$('compareEnd').value=addDays(a,-1);}refresh()});
+['compareStart','compareEnd','granularity'].forEach(id=>$(id).addEventListener('change',refresh));
+['origin','identified','held'].forEach(id=>$(id).addEventListener('change',refresh));$('month').addEventListener('change',()=>{const m=$('month').value;if(m){$('dateStart').value=m+'-01';$('dateEnd').value=toISO(new Date(Number(m.slice(0,4)),Number(m.slice(5,7)),0,12));$('datePreset').value='custom';$('month').value='';}refresh()});$('search').addEventListener('input',refresh);$('visibleSearch').addEventListener('input',()=>{$('search').value=$('visibleSearch').value;refresh()});
+$('resetBtn').addEventListener('click',()=>{pickedOrigins.clear();pickedLocations.clear();pickedTimes.clear();originOtherSet=[];['origin','month','identified','held','search','visibleSearch'].forEach(id=>$(id).value='');activeKpi='all';$('compareMode').value='none';$('granularity').value='auto';$('datePreset').value='all';const [a,b]=rangeFor('all');$('dateStart').value=a;$('dateEnd').value=b;refresh()});$('prev').addEventListener('click',()=>{page--;renderTable()});$('next').addEventListener('click',()=>{page++;renderTable()});
+$('exportBtn').addEventListener('click',()=>{const cols=RAW_DATA.length?Object.keys(RAW_DATA[0]).filter(k=>!k.startsWith("@odata") && k!=="ItemInternalId"):[];const quote=v=>'"'+clean(v).replace(/"/g,'""')+'"';const csv=[cols.map(quote).join(','),...current.map(r=>cols.map(k=>quote(r[k])).join(','))].join('\r\n');const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='near-miss-filtered.csv';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url)});
+
+const authConfig={
+  clientId:'90d1e69f-bec3-42f6-82e2-e4a912734dec',
+  authority:'https://login.microsoftonline.com/afe58217-0b12-48ef-9fa8-d9bd5428f87e',
+  redirectUri:'https://stewart-dexcoinc.github.io/DexcoQualityDashboard/'
+};
+const shareUrl='https://immsamx.sharepoint.com/:u:/s/Quality/IQBVl9Yjl0gpRLY9rdgoX3X1ARI0MTozaFnRzCh_yn738Gw?e=LTvOUH';
+const scopes=['User.Read','Files.Read','Sites.Read.All'];
+let authClient=null;
+const authMessage=message=>{$('authMessage').textContent=message};
+const shareId='u!'+btoa(shareUrl).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+async function fetchRecords(){
+  const account=authClient.getActiveAccount()||authClient.getAllAccounts()[0];
+  if(!account){authMessage('Please sign in with your Microsoft 365 account.');return;}
+  $('signInButton').classList.add('hidden');
+  $('retryButton').classList.add('hidden');
+  authMessage('Checking SharePoint permissions and loading near-miss data…');
+  try{
+    let token;
+    try{token=await authClient.acquireTokenSilent({account,scopes});}
+    catch(e){token=await authClient.acquireTokenPopup({account,scopes});}
+    const response=await fetch(`https://graph.microsoft.com/v1.0/shares/${shareId}/driveItem/content`,{headers:{Authorization:'Bearer '+token.accessToken},cache:'no-store'});
+    if(!response.ok){const message=await response.text();throw new Error(`SharePoint data request failed (${response.status}). ${message.slice(0,220)}`);}
+    const json=await response.json();
+    if(!Array.isArray(json))throw new Error('SharePoint returned an unexpected format instead of a JSON array.');
+    if(!json.length)throw new Error('SharePoint returned no near-miss records.');
+    loadData(json);
+    $('signedInAccount').textContent=account.username||'';
+    $('dashboard').classList.remove('hidden');
+    $('authGate').classList.add('hidden');
+    setPreset('all');
+  }catch(e){
+    console.error('Dashboard data load:',e);
+    authMessage(e.message+' If access is blocked, your Microsoft 365 administrator may need to approve the app.');
+    $('retryButton').classList.remove('hidden');
+    $('signInButton').classList.remove('hidden');
+  }
+}
+async function initAuth(){
+  try{
+    if(!window.msal?.PublicClientApplication)throw new Error('Microsoft sign-in library could not load.');
+    authClient=new msal.PublicClientApplication({auth:authConfig,cache:{cacheLocation:'sessionStorage'}});
+    await authClient.initialize();
+    const redirect=await authClient.handleRedirectPromise();
+    if(redirect?.account)authClient.setActiveAccount(redirect.account);
+    if(authClient.getAllAccounts().length)await fetchRecords();
+  }catch(e){console.error(e);authMessage('Authentication initialization failed: '+e.message);}
+}
+$('signInButton').addEventListener('click',async()=>{
+  if(!authClient)return;
+  $('signInButton').disabled=true;
+  try{const login=await authClient.loginPopup({scopes,prompt:'select_account'});authClient.setActiveAccount(login.account);await fetchRecords();}
+  catch(e){console.error(e);authMessage('Microsoft sign-in failed: '+e.message);}
+  finally{$('signInButton').disabled=false;}
+});
+$('retryButton').addEventListener('click',fetchRecords);
+$('signOutButton').addEventListener('click',async()=>{if(authClient){const account=authClient.getActiveAccount()||authClient.getAllAccounts()[0];await authClient.logoutPopup({account,mainWindowRedirectUri:authConfig.redirectUri});location.reload();}});
+initAuth();
+</script>
+</body></html>

@@ -111,6 +111,12 @@ function loadData(rows){
     return copy;
   });
   DATA=RAW_DATA.map(r=>({...r,_date:parseDate(r[C.date]),_origin:normalOrigin(r[C.origin]),_found:clean(r[C.found])||'Unspecified',_time:normalTime(r[C.time])})).sort((a,b)=>a._date.localeCompare(b._date));
+  // Populate date and category controls only after authenticated data has loaded.
+  for(const id of ['origin','month','identified']) $(id).replaceChildren(new Option('All', ''));
+  setOptions('origin',countBy(DATA,r=>r._origin).map(([v])=>v));
+  setOptions('month',[...new Set(DATA.map(r=>r._date.slice(0,7)))].sort(),fmtMonth);
+  setOptions('identified',countBy(DATA,r=>r._found).map(([v])=>v));
+  $('rangeBadge').textContent=`${fmtDate(DATA[0]._date)} – ${fmtDate(DATA[DATA.length-1]._date)}`;
 }
 const countBy=(arr,fn)=>{const m=new Map();arr.forEach(r=>{let k=fn(r);m.set(k,(m.get(k)||0)+1)});return [...m].sort((a,b)=>b[1]-a[1]);};
 const toISO=d=>{const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`;};
@@ -128,10 +134,6 @@ const fmtMonth=s=>new Date(s+'-01T12:00:00').toLocaleDateString('en-US',{month:'
 const esc=v=>clean(v).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 let current=[],page=0;const PAGE_SIZE=12;
 function setOptions(id,values,formatter=v=>v){for(const v of values){const o=document.createElement('option');o.value=v;o.textContent=formatter(v);$(id).appendChild(o)}}
-setOptions('origin',countBy(DATA,r=>r._origin).map(([v])=>v));
-setOptions('month',[...new Set(DATA.map(r=>r._date.slice(0,7)))].sort(),fmtMonth);
-setOptions('identified',countBy(DATA,r=>r._found).map(([v])=>v));
-$('rangeBadge').textContent=`${fmtDate(DATA[0]._date)} – ${fmtDate(DATA[DATA.length-1]._date)}`;
 Chart.defaults.color='#a2b2c8';Chart.defaults.borderColor='rgba(148,163,184,.12)';Chart.defaults.font.family='Inter,system-ui,sans-serif';
 let trendChart,originChart,timeChart;const pickedOrigins=new Set(),pickedLocations=new Set(),pickedTimes=new Set();let originOtherSet=[];const palette=['#38bdf8','#fbbf24','#a78bfa','#34d399','#fb7185','#f97316','#22d3ee','#c4b5fd'];const groupColor=(name)=>palette[Math.max(0,countBy(DATA,r=>r._origin).findIndex(x=>x[0]===name))%palette.length];
 const common={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{usePointStyle:true,boxWidth:7,padding:18}},tooltip:{backgroundColor:'#1d2c41',padding:12,cornerRadius:9}},scales:{x:{grid:{display:false},ticks:{maxRotation:0}},y:{beginAtZero:true,ticks:{precision:0},grid:{color:'rgba(148,163,184,.12)'}}}};

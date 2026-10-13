@@ -1,0 +1,183 @@
+
+name: Near Miss Data Sync
+
+on:
+  repository_dispatch:
+    types: [near-miss-refresh]
+
+permissions:
+  contents: write
+
+jobs:
+  receive-batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Configure Git
+        run: |
+          git config user.name "near-miss-sync[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Store and reconcile batch
+        env:
+          EVENT_FILE: ${{ github.event_path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 20); do
+            echo "Git update attempt $attempt"
+
+            git fetch origin main
+            git reset --hard origin/main
+
+            python3 <<'PY'
+          import json
+          import os
+          import re
+          import shutil
+          from pathlib import Path
+          from datetime import datetime, timezone
+
+          event = json.loads(Path(os.environ["EVENT_FILE"]).read_text())
+          p = event["client_payload"]
+
+          refresh = str(p["refresh_id"])
+          index = int(p["batch_index"])
+          total = int(p["total_batches"])
+          expected = int(p["total_records"])
+          generated = str(p["generated_at"])
+          records = p["records"]
+
+          if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", refresh):
+              raise ValueError("Invalid refresh ID")
+
+          if not (1 <= total <= 10000 and 0 <= index < total):
+              raise ValueError("Invalid batch numbering")
+
+          if not isinstance(records, list) or not 1 <= len(records) <= 35:
+              raise ValueError("Invalid batch size")
+
+          if expected < 1 or expected > total * 35:
+              raise ValueError("Invalid expected record count")
+
+          timestamp = datetime.fromisoformat(generated.replace("Z", "+00:00"))
+          if timestamp.tzinfo is None:
+              raise ValueError("Refresh timestamp must include timezone")
+
+          for record in records:
+              if not isinstance(record, dict):
+                  raise ValueError("Invalid record")
+              if "Id" not in record:
+                  raise ValueError("Missing record ID")
+              if "Name" in record or "Email" in record:
+                  raise ValueError("Personal information detected")
+
+          base = Path(".near-miss-batches") / refresh
+          base.mkdir(parents=True, exist_ok=True)
+
+          batch = {
+              "refresh_id": refresh,
+              "batch_index": index,
+              "total_batches": total,
+              "total_records": expected,
+              "generated_at": generated,
+              "records": records
+          }
+
+          target = base / f"{index:05d}.json"
+
+          if target.exists():
+              previous = json.loads(target.read_text())
+              if previous != batch:
+                  raise ValueError("Conflicting duplicate batch")
+          else:
+              target.write_text(json.dumps(batch, ensure_ascii=False))
+
+          files = sorted(base.glob("*.json"))
+          print(f"Received {len(files)} of {total} batches")
+
+          if len(files) == total:
+              batches = [json.loads(f.read_text()) for f in files]
+
+              if {b["batch_index"] for b in batches} != set(range(total)):
+                  raise ValueError("Missing batch index")
+
+              if any(
+                  b["refresh_id"] != refresh
+                  or b["total_batches"] != total
+                  or b["total_records"] != expected
+                  or b["generated_at"] != generated
+                  for b in batches
+              ):
+                  raise ValueError("Inconsistent batch metadata")
+
+              combined = []
+              for b in sorted(batches, key=lambda x: x["batch_index"]):
+                  combined.extend(b["records"])
+
+              ids = [str(r["Id"]) for r in combined]
+
+              if len(combined) != expected:
+                  raise ValueError("Incomplete record count")
+
+              if len(ids) != len(set(ids)):
+                  raise ValueError("Duplicate record IDs")
+
+              meta_path = Path(".near-miss-sync-meta.json")
+              publish = True
+
+              if meta_path.exists():
+                  previous = json.loads(meta_path.read_text())
+                  old_time = datetime.fromisoformat(
+                      previous["generated_at"].replace("Z", "+00:00")
+                  )
+                  if timestamp < old_time:
+                      publish = False
+
+              if publish:
+                  Path("near-miss-data.json").write_text(
+                      json.dumps(combined, ensure_ascii=False, indent=2)
+                  )
+
+                  meta_path.write_text(json.dumps({
+                      "refresh_id": refresh,
+                      "generated_at": generated,
+                      "record_count": len(combined)
+                  }, indent=2))
+
+                  print(f"Published {len(combined)} complete records")
+              else:
+                  print("Older refresh ignored")
+
+              shutil.rmtree(base)
+
+          PY
+
+            git add -A
+
+            if git diff --cached --quiet; then
+              echo "No changes required"
+              exit 0
+            fi
+
+            git commit -m "Near miss data refresh"
+
+            if git push origin HEAD:main; then
+              echo "Batch saved successfully"
+              exit 0
+            fi
+
+            echo "Concurrent update detected; retrying"
+            sleep $((attempt * 2))
+          done
+
+          echo "Failed to update repository after retries"
+          exit 1
